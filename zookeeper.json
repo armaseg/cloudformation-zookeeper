@@ -29,11 +29,6 @@
       "Type" : "Number",
       "Default": 3
     },
-    "DockerImage" : {
-      "Description" : "Path of the ZK+Exhibitor Docker image (format: '[<registry>[:<port>]/]<repository>:<version>')",
-      "Type" : "String",
-      "Default" : "mbabineau/zookeeper-exhibitor:3.4.6_1.5.4"
-    },
     "ExhibitorS3Bucket" : {
       "Description" : "Bucket for Exhibitor backups of ZK configs",
       "Type" : "String"
@@ -59,7 +54,7 @@
       "Type" : "AWS::EC2::SecurityGroup::Id"
     },
     "AvailabilityZones": {
-      "Description" : "(Optional) If passed, only launch nodes in these AZs (e.g., 'us-east-1a,us-east-1b'). Note: these must match up with the passed Subnets.",
+      "Description" : "(Optional) If passed, only launch nodes in these AZs (e.g., 'eu-west-1a,eu-west-1b'). Note: these must match up with the passed Subnets.",
       "Type" : "CommaDelimitedList",
       "Default" : ""
     },
@@ -73,29 +68,8 @@
 
   "Mappings" : {
     "RegionMap" : {
-      "us-east-1" : {
-        "AMI" : "ami-87705d90"
-      },
-      "us-west-1" : {
-        "AMI" : "ami-1b1e4b7b"
-      },
-      "us-west-2" : {
-        "AMI" : "ami-70b71410"
-      },
       "eu-west-1" : {
-        "AMI" : "ami-fb91c788"
-      },
-      "ap-southeast-1" : {
-        "AMI" : "ami-c7e447a4"
-      },
-      "ap-southeast-2" : {
-        "AMI" : "ami-ac3a05cf"
-      },
-      "ap-northeast-1" : {
-        "AMI" : "ami-6dc0690c"
-      },
-      "sa-east-1" : {
-        "AMI" : "ami-45ff6029"
+        "AMI" : "ami-c51e3eb6"
       }
     }
   },
@@ -109,7 +83,7 @@
       "Type" : "AWS::IAM::User",
       "Properties" : {
         "Policies" : [{
-          "PolicyName" : "S3Access",
+          "PolicyName" : "S3ExhibitorAccess",
           "PolicyDocument" : {
             "Statement": [{
               "Effect"   : "Allow",
@@ -150,14 +124,24 @@
         },
         "LaunchConfigurationName" : { "Ref" : "LaunchConfig" },
         "MinSize" : "1",
-        "MaxSize" : "9",
+        "MaxSize" : "5",
         "DesiredCapacity" : { "Ref" : "ClusterSize" },
         "LoadBalancerNames" : [ { "Ref" : "ElasticLoadBalancer" } ],
         "VPCZoneIdentifier" : { "Ref" : "Subnets" },
         "Tags" : [
           {
-            "Key" : "role",
-            "Value" : "zookeeper",
+            "Key" : "Role",
+            "Value" : "ZOOKEEPER",
+            "PropagateAtLaunch" : "true"
+          },
+          {
+            "Key" : "Service",
+            "Value" : "DATA",
+            "PropagateAtLaunch" : "true"
+          },
+          {
+            "Key" : "env",
+            "Value" : "dev",
             "PropagateAtLaunch" : "true"
           }
         ]
@@ -182,25 +166,71 @@
           "  exit 1\n",
           "}\n",
 
+          "#Install Java8 \n",
+          "yum -y install java-1.8.0-openjdk-devel aws-cfn-bootstrap \n",
+          "yum -y remove java-1.7.0-openjdk \n",
+          "export JAVA_HOME='/usr/lib/jvm/java-1.8.0-openjdk'  \n",
+
+          "#Install Zookeeper \n",
+          "mkdir -p /opt \n",
+          "curl -Lo /tmp/zookeeper.tgz http://apache.crihan.fr/dist/zookeeper/zookeeper-3.4.9/zookeeper-3.4.9.tar.gz \n",
+          "mkdir -p /opt/zookeeper/transactions /opt/zookeeper/snapshots \n",
+          "tar -zxf /tmp/zookeeper.tgz -C /opt/zookeeper --strip-components=1  \n",
+          "rm -f /tmp/zookeeper.tgz \n",
+          "cp /opt/zookeeper/conf/zoo_sample.cfg /opt/zookeeper/conf/zoo.cfg \n",
+
+          "#Install Maven \n",
+          "cd /usr/share  \n",
+          "wget -q http://archive.apache.org/dist/maven/maven-3/3.3.9/binaries/apache-maven-3.3.9-bin.tar.gz -O - | tar xzf -  \n",
+          "mv /usr/share/apache-maven-3.3.9 /usr/share/maven  \n",
+          "ln -s /usr/share/maven/bin/mvn /usr/bin/mvn \n",
+
+          "#Install Exhibitor \n",
+          "mkdir -p /opt/exhibitor  \n",
+          "curl -Lo /opt/exhibitor/pom.xml https://raw.githubusercontent.com/Netflix/exhibitor/master/exhibitor-standalone/src/main/resources/buildscripts/standalone/maven/pom.xml  \n",
+          "mvn -f /opt/exhibitor/pom.xml package  \n",
+          "ln -s /opt/exhibitor/target/exhibitor*jar /opt/exhibitor/exhibitor.jar  \n",
+          "chown -R nobody.nobody /opt/zookeeper /opt/exhibitor \n",
+
+          "#Config Exhibitor \n",
+          "echo 'zookeeper-data-directory=/opt/zookeeper/snapshots' > /opt/exhibitor/defaults.conf  \n",
+          "echo 'zookeeper-install-directory=/opt/zookeeper' >> /opt/exhibitor/defaults.conf  \n",
+          "echo 'zookeeper-log-directory=/opt/zookeeper/transactions' >> /opt/exhibitor/defaults.conf  \n",
+          "echo 'log-index-directory=/opt/zookeeper/transactions' >> /opt/exhibitor/defaults.conf  \n",
+          "echo 'cleanup-period-ms=300000' >> /opt/exhibitor/defaults.conf  \n",
+          "echo 'check-ms=30000' >> /opt/exhibitor/defaults.conf  \n",
+          "echo 'backup-period-ms=600000' >> /opt/exhibitor/defaults.conf  \n",
+          "echo 'client-port=2181' >> /opt/exhibitor/defaults.conf  \n",
+          "echo 'cleanup-max-files=20' >> /opt/exhibitor/defaults.conf  \n",
+          "echo 'backup-max-store-ms=21600000' >> /opt/exhibitor/defaults.conf  \n",
+          "echo 'connect-port=2888' >> /opt/exhibitor/defaults.conf  \n",
+          "echo 'observer-threshold=0' >> /opt/exhibitor/defaults.conf  \n",
+          "echo 'election-port=3888' >> /opt/exhibitor/defaults.conf \n",
+          "echo 'zoo-cfg-extra=tickTime\\=2000&initLimit\\=10&syncLimit\\=5&quorumListenOnAllIPs\\=true' >> /opt/exhibitor/defaults.conf  \n",
+          "echo 'auto-manage-instances-settling-period-ms=0' >> /opt/exhibitor/defaults.conf  \n",
+          "echo 'auto-manage-instances=1' >> /opt/exhibitor/defaults.conf  \n",
+          "echo 'auto-manage-instances-fixed-ensemble-size=0' >> /opt/exhibitor/defaults.conf \n",
+
+          "#S3 security  \n",
+          "echo 'com.netflix.exhibitor.s3.access-key-id=", { "Ref" : "HostKeys" },"' > /opt/exhibitor/credentials.properties  \n",
+          "echo 'com.netflix.exhibitor.s3.access-secret-key=", {"Fn::GetAtt": ["HostKeys", "SecretAccessKey"]},"' >> /opt/exhibitor/credentials.properties  \n",
+
+          "#Set HOSTNAME value  \n",
           "HOSTNAME=\"\" \n",
           "if [ ", { "Ref": "AssociatePublicIpAddress" }, " == \"true\" ] \n",
           "then \n",
-		  "  HOSTNAME=`ec2metadata --public-hostname`\n",
+		      "  HOSTNAME=`/opt/aws/bin/ec2-metadata --public-hostname | awk '{print $2}'`\n",
           "else \n",
-          "  HOSTNAME=`ec2metadata --local-ipv4 `\n",
+          "  HOSTNAME=`/opt/aws/bin/ec2-metadata --local-ipv4 | awk '{print $2}'`\n",
           "fi \n",
 
-          "# Set up and start the Exhibitor+ZooKeeper service\n",
-          "docker pull ", { "Ref": "DockerImage" }, "\n",
-          "runit-service create zk docker run ",
-          "   -p 8181:8181 -p 2181:2181 -p 2888:2888 -p 3888:3888",
-          "   -e 'S3_BUCKET=", { "Ref" : "ExhibitorS3Bucket" }, "'",
-          "   -e 'S3_PREFIX=", { "Ref" : "ExhibitorS3Prefix" }, "'",
-          "   -e 'AWS_ACCESS_KEY_ID=", { "Ref" : "HostKeys" }, "'",
-          "   -e 'AWS_SECRET_ACCESS_KEY=", {"Fn::GetAtt": ["HostKeys", "SecretAccessKey"]}, "'",
-          "   -e 'AWS_REGION=", { "Ref" : "ExhibitorS3Region" }, "'",
-          "   -e 'HOSTNAME='$HOSTNAME ",
-          "   ", { "Ref": "DockerImage" }, "\n",
+          "#Exec exhibitor \n",
+          "exec java -jar /opt/exhibitor/exhibitor.jar ",
+          "    --port 8181 --defaultconfig /opt/exhibitor/defaults.conf ",
+          "    --configtype s3 --s3config ", { "Ref" : "ExhibitorS3Bucket" }, ":", { "Ref" : "ExhibitorS3Prefix" }, " ",
+          "    --s3credentials /opt/exhibitor/credentials.properties ",
+          "    --s3region ", { "Ref" : "ExhibitorS3Region" }, " --s3backup true ",
+          "    --hostname $HOSTNAME \n",
           "runit-service enable zk\n",
 
           "# All is well so signal success\n",

@@ -4,7 +4,7 @@ CloudFormation template for an [Exhibitor](https://github.com/Netflix/exhibitor)
 
 This template bootstraps a ZooKeeper cluster. The ZK nodes are managed by Exhibitor with S3 for backups and automatic node discovery.
 
-ZooKeeper and Exhibitor are run via a Docker container. You may use the default ([mbabineau/zookeeper-exhibitor](https://github.com/mbabineau/docker-zk-exhibitor)) or provide your own image.
+ZooKeeper and Exhibitor are not run via a Docker container. The install scripts are based on  ([mbabineau/zookeeper-exhibitor](https://github.com/mbabineau/docker-zk-exhibitor)).
 
 The servers are part of an auto-scaling group. Incrementing, decrementing, or otherwise modifying the server list should be handled gracefully by ZooKeeper (thanks to Exhibitor).
 
@@ -18,7 +18,7 @@ Note that this template must be used with Amazon VPC. New AWS accounts automatic
 
 ### 1. Clone the repository
 ```bash
-git clone https://github.com/mbabineau/cloudformation-zookeeper.git
+git clone https://github.com/armaseg/cloudformation-zookeeper.git
 ```
 
 ### 2. Create an Admin security group
@@ -53,7 +53,5 @@ aws cloudformation create-stack \
 
 ### 4. Watch the cluster converge
 Once the stack has been provisioned, visit `http://<host>:8181/exhibitor/v1/ui/index.html` on one of the nodes. You will need to do this from a location granted access by the specified `AdminSecurityGroup`.
-
-_Note the Docker image may take several minutes to retrieve. This can be improved with the use of a private Docker registry._
 
 You should see Exhibitor's management UI with a list of ZK nodes in this cluster. Exhibitor adds each node to the cluster via a rolling restart, so you may see nodes getting added and restarting during the first few minutes they're up.
