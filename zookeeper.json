@@ -167,9 +167,14 @@
           "}\n",
 
           "#Install Java8 \n",
+          "yum -y update --security \n",
           "yum -y install java-1.8.0-openjdk-devel aws-cfn-bootstrap \n",
           "yum -y remove java-1.7.0-openjdk \n",
           "export JAVA_HOME='/usr/lib/jvm/java-1.8.0-openjdk'  \n",
+          "#Setting the JVM TTL for DNS Name Lookups - AWS \n",
+          "cd $JAVA_HOME \n",
+          "cd jre/lib/security \n",
+          "sed -i '/networkaddress.cache.ttl=/ c\\networkaddress.cache.ttl=60' java.security \n",
 
           "#Install Zookeeper \n",
           "mkdir -p /opt \n",
